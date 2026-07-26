@@ -679,7 +679,12 @@ input.srch:focus{border-color:var(--acc)}
 <!-- MONTHLY / WEEKLY USAGE (live Google Sheet, replaces year-only totals) -->
 <div id="pg-musage" class="pg">
   <div class="ph"><div><div class="bc">🏠 › Field &amp; Program</div><div class="pt">Monthly &amp; Weekly Usage</div></div>
-  <div class="pctrl"><span class="live-tag"><span class="live-dot"></span>Live Google Sheet</span><button class="btn" onclick="loadMonthlyUsage(true)">↻ Refresh</button></div></div>
+  <div class="pctrl"><span class="live-tag"><span class="live-dot"></span>Live Google Sheet</span>
+  <select class="ctl" id="mu-zone" onchange="rMonthlyUsage()"><option value="">All Zones</option></select>
+  <select class="ctl" id="mu-dist" onchange="rMonthlyUsage()"><option value="">All Districts</option></select>
+  <select class="ctl" id="mu-zm" onchange="rMonthlyUsage()"><option value="">All ZM</option></select>
+  <select class="ctl" id="mu-dc" onchange="rMonthlyUsage()"><option value="">All DC</option></select>
+  <button class="btn" onclick="loadMonthlyUsage(true)">↻ Refresh</button></div></div>
   <div id="musage-setup" class="ph-empty" style="display:none">
     <div class="pe-ic">📆</div><div class="pe-t">Not connected to a live Sheet yet</div>
     <div class="pe-s">Fill in Usage_Log_Template.xlsx (2 tabs: Monthly Usage Log, Weekly Usage Log), publish each tab to the web as CSV, then paste the 2 links into MONTHLY_CSV_URL and WEEKLY_CSV_URL near the top of this file's code. After that one-time setup, just add new rows to the same Sheet each month/week — no more links, no code changes.</div>
@@ -977,21 +982,61 @@ function detectWideMonths(rows){
   });
   return months;
 }
+// A school's ZM/DC (from Master Data's STAFF_DETAIL), looked up by School Code — used to let
+// Monthly Usage be filtered by ZM/DC even though the Usage Log sheet itself doesn't store that.
+function schoolStaffLookup(cc){ return STAFF_DETAIL[cc] || STAFF_DETAIL[+cc] || {}; }
+function populateMusageFilters(){
+  const zoneSel=document.getElementById('mu-zone'), distSel=document.getElementById('mu-dist');
+  const zmSel=document.getElementById('mu-zm'), dcSel=document.getElementById('mu-dc');
+  if(!zoneSel) return;
+  const zones=new Set(), dists=new Set(), zms=new Set(), dcs=new Set();
+  MONTHLY_ROWS.forEach(r=>{
+    if(getField(r,'Zone')) zones.add(getField(r,'Zone'));
+    if(getField(r,'District')) dists.add(getField(r,'District'));
+    const sd=schoolStaffLookup(getField(r,'School Code'));
+    if(sd.pc) zms.add(sd.pc);
+    if(sd.dc) dcs.add(sd.dc);
+  });
+  const fill=(sel,set,label)=>{
+    const prev=sel.value;
+    sel.innerHTML=`<option value="">${label}</option>`+[...set].sort().map(v=>`<option value="${v}">${v}</option>`).join('');
+    if(set.has(prev)) sel.value=prev;
+  };
+  fill(zoneSel,zones,'All Zones'); fill(distSel,dists,'All Districts'); fill(zmSel,zms,'All ZM'); fill(dcSel,dcs,'All DC');
+}
+function musageMatchesFilters(r){
+  const zone=document.getElementById('mu-zone')?.value||'';
+  const dist=document.getElementById('mu-dist')?.value||'';
+  const zm=document.getElementById('mu-zm')?.value||'';
+  const dc=document.getElementById('mu-dc')?.value||'';
+  if(zone && getField(r,'Zone')!==zone) return false;
+  if(dist && getField(r,'District')!==dist) return false;
+  if(zm || dc){
+    const sd=schoolStaffLookup(getField(r,'School Code'));
+    if(zm && sd.pc!==zm) return false;
+    if(dc && sd.dc!==dc) return false;
+  }
+  return true;
+}
 function rMonthlyUsage(){
-  const monthTags=detectWideMonths(MONTHLY_ROWS); // e.g. ['April','May','June']
+  populateMusageFilters();
+  const monthlyF=MONTHLY_ROWS.filter(musageMatchesFilters);
+  const weeklyF=WEEKLY_ROWS.filter(musageMatchesFilters);
+
+  const monthTags=detectWideMonths(monthlyF); // e.g. ['April','May','June']
   const byMonth={};
   monthTags.forEach(tag=>{
-    let usage=0;
-    MONTHLY_ROWS.forEach(r=>{ usage+=parseFloat(getField(r,`Usage Hours (${tag})`))||0; });
-    byMonth[tag]={usage};
+    let usage=0, students=0;
+    monthlyF.forEach(r=>{ usage+=parseFloat(getField(r,`Usage Hours (${tag})`))||0; students+=parseFloat(getField(r,'Total Students'))||0; });
+    byMonth[tag]={usage, avg: students>0?usage/students:0};
   });
   const monthKeys=monthTags; // already left-to-right in sheet order
 
   document.getElementById('musage-kpi').innerHTML = monthKeys.map((k,i)=>{
     const d=byMonth[k];
     const colors=['#1755C2','#0B8F68','#B8860B','#7A3FE0','#C41C1C','#0D9BAA'];
-    return `<div class="kc"><div class="kt" style="background:${colors[i%colors.length]}"></div><div class="kl">${k} — Usage Hours</div><div class="kv">${Math.round(d.usage).toLocaleString()}</div></div>`;
-  }).join('') || `<div class="ph-empty"><div class="pe-t">No monthly rows yet</div></div>`;
+    return `<div class="kc"><div class="kt" style="background:${colors[i%colors.length]}"></div><div class="kl">${k} — Usage Hrs (Avg/Student)</div><div class="kv">${Math.round(d.usage).toLocaleString()} <span style="font-size:12px;color:var(--mut)">(${d.avg.toFixed(1)})</span></div></div>`;
+  }).join('') || `<div class="ph-empty"><div class="pe-t">No monthly rows match this filter</div></div>`;
 
   BC('musage-comp-chart','bar',{labels:monthKeys,datasets:[
     {label:'Usage Hours',data:monthKeys.map(k=>Math.round(byMonth[k].usage)),backgroundColor:'#1755C2',borderRadius:4}
@@ -999,7 +1044,7 @@ function rMonthlyUsage(){
 
   // Weekly log: figure out which months have weekly rows, default to the latest one, but let the person switch.
   const weekMonthsSet={};
-  WEEKLY_ROWS.forEach(r=>{
+  weeklyF.forEach(r=>{
     const m=getField(r,'Month'), y=getField(r,'Year');
     if(!m) return;
     weekMonthsSet[m+' '+y]={month:m,year:y};
@@ -1011,28 +1056,32 @@ function rMonthlyUsage(){
     sel.innerHTML=weekMonthKeys.map(k=>`<option value="${k}">${k}</option>`).join('');
     sel.value = weekMonthKeys.includes(prevVal) ? prevVal : weekMonthKeys[weekMonthKeys.length-1];
   }
-  renderWeekChart();
+  renderWeekChart(weeklyF);
 
-  // ── Combined summary across BOTH logs, however many months/weeks exist ──
-  const bySchoolUsage={};
-  MONTHLY_ROWS.forEach(r=>{
+  // ── Combined summary across BOTH logs, honoring the same Zone/District/ZM/DC filter ──
+  const bySchoolUsage={}, bySchoolStudents={};
+  monthlyF.forEach(r=>{
     const name=getField(r,'School Name'); if(!name) return;
     let u=0;
     monthTags.forEach(tag=>{ u+=parseFloat(getField(r,`Usage Hours (${tag})`))||0; });
     bySchoolUsage[name]=(bySchoolUsage[name]||0)+u;
+    bySchoolStudents[name]=parseFloat(getField(r,'Total Students'))||bySchoolStudents[name]||0;
   });
-  WEEKLY_ROWS.forEach(r=>{
+  weeklyF.forEach(r=>{
     const name=getField(r,'School Name'); if(!name) return;
     bySchoolUsage[name]=(bySchoolUsage[name]||0)+(parseFloat(getField(r,'Usage Hours'))||0);
   });
   const totalUsage=Object.values(bySchoolUsage).reduce((a,b)=>a+b,0);
+  const totalStudents=Object.values(bySchoolStudents).reduce((a,b)=>a+b,0);
   const schoolNames=Object.keys(bySchoolUsage).sort((a,b)=>bySchoolUsage[b]-bySchoolUsage[a]);
   const totalSchoolsAvgUsage=schoolNames.length?(totalUsage/schoolNames.length):0;
+  const avgPerStudent=totalStudents>0?(totalUsage/totalStudents):0;
 
   document.getElementById('musage-combined-kpi').innerHTML = `
     <div class="kc"><div class="kt" style="background:#1755C2"></div><div class="kl">Total Usage Hours (All Months)</div><div class="kv">${Math.round(totalUsage).toLocaleString()}</div></div>
     <div class="kc"><div class="kt" style="background:#B8860B"></div><div class="kl">Schools Covered</div><div class="kv">${schoolNames.length}</div></div>
-    <div class="kc"><div class="kt" style="background:#7A3FE0"></div><div class="kl">Avg Usage Hrs / School</div><div class="kv">${totalSchoolsAvgUsage.toFixed(1)}</div></div>`;
+    <div class="kc"><div class="kt" style="background:#7A3FE0"></div><div class="kl">Avg Usage Hrs / School</div><div class="kv">${totalSchoolsAvgUsage.toFixed(1)}</div></div>
+    <div class="kc"><div class="kt" style="background:#0B8F68"></div><div class="kl">Avg Usage Hrs / Student</div><div class="kv">${avgPerStudent.toFixed(1)}</div></div>`;
   const combinedHost=document.getElementById('musage-combined-tbody');
   if(combinedHost){
     combinedHost.innerHTML = schoolNames.length ? schoolNames.map(name=>`<tr>
@@ -1041,12 +1090,13 @@ function rMonthlyUsage(){
       </tr>`).join('') : `<tr><td colspan="2" style="text-align:center;padding:14px;color:var(--mut)">No data yet.</td></tr>`;
   }
 }
-function renderWeekChart(){
+function renderWeekChart(sourceRows){
+  const base = sourceRows || WEEKLY_ROWS.filter(musageMatchesFilters);
   const sel=document.getElementById('musage-week-month');
   const chosen=sel?sel.value:null;
   if(!chosen){ BC('musage-july-chart','bar',{labels:[],datasets:[]}); return; }
   const [month,year]=chosen.split(' ');
-  const rows=WEEKLY_ROWS.filter(r=>getField(r,'Month')===month && getField(r,'Year')===year);
+  const rows=base.filter(r=>getField(r,'Month')===month && getField(r,'Year')===year);
   const byRange={};
   rows.forEach(r=>{
     const rg=getField(r,'Date Range')||'—';
@@ -1496,14 +1546,26 @@ function fVisits(){
     if(st && statusBucket(r)!==st) return false;
     return true;
   });
-  const total=base.length;
-  const open=base.filter(r=>statusBucket(r)==='Open').length;
-  const closed=base.filter(r=>statusBucket(r)==='Closed').length;
-  const schoolsSet=new Set(base.map(r=>getField(r,'School Name')).filter(Boolean));
+  const total=arr.length;
+  const open=arr.filter(r=>statusBucket(r)==='Open').length;
+  const closed=arr.filter(r=>statusBucket(r)==='Closed').length;
+  const schoolsSet=new Set(arr.map(r=>getField(r,'School Name')).filter(Boolean));
   document.getElementById('vtk-total').textContent=total;
   document.getElementById('vtk-open').textContent=open;
   document.getElementById('vtk-closed').textContent=closed;
   document.getElementById('vtk-schools').textContent=schoolsSet.size;
+  const kpiLabels=document.querySelectorAll('#vt-kpi .kl');
+  if(fs && kpiLabels.length>=4){
+    kpiLabels[0].textContent=`${fs} — Visits Logged`;
+    kpiLabels[1].textContent=`${fs} — Open Action Items`;
+    kpiLabels[2].textContent=`${fs} — Closed`;
+    kpiLabels[3].textContent=`${fs} — Schools Visited`;
+  } else if(kpiLabels.length>=4){
+    kpiLabels[0].textContent='Total Visits Logged';
+    kpiLabels[1].textContent='Open Action Items';
+    kpiLabels[2].textContent='Closed';
+    kpiLabels[3].textContent='Schools Visited';
+  }
   if(!arr.length){
     document.getElementById('vt-tbody').innerHTML=`<tr><td colspan="14" style="text-align:center;padding:20px;color:var(--mut)">No visit records ${VISITS.length?'match your filters':'yet — once your field team starts submitting the Google Form, entries appear here automatically'}.</td></tr>`;
     return;
@@ -1524,7 +1586,7 @@ function fVisits(){
     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'Discussion Outcomes with Principal/ICT/Teachers/Students','Action Items for Next Visit','Next Steps','Remarks','Comments','Comment')||'—'}</td>
     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'Remarks by Malli/Siva','Manager Comments','Mallikarjuna Comments','Shiva Comments','Reviewer Comments','Manager Remarks')||'—'}</td>
     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'Action taken by ZM','ZM Action Point','Action Taken','Action Taken by Reviewer','Reviewer Action Taken')||'—'}</td>
-    <td style="white-space:nowrap">${getField(r,'Next Visit Due Date')||'—'}</td>
+    <td style="white-space:nowrap">${getField(r,'Next Visit','Next Visit Date','Next Visit Due Date','Next Visit Scheduled Date')||'—'}</td>
     <td class="${sc}">${bucket==='Unset'?'Not set':bucket}</td>
     </tr>`;
   }).join('');
@@ -1584,6 +1646,7 @@ function fVisitsGrouped(){
             <div><b>Next steps:</b> ${getField(r,'Discussion Outcomes with Principal/ICT/Teachers/Students','Action Items for Next Visit','Next Steps','Remarks','Comments','Comment')||'—'}</div>
             <div><b>Manager comments:</b> ${getField(r,'Remarks by Malli/Siva','Manager Comments','Mallikarjuna Comments','Shiva Comments','Reviewer Comments','Manager Remarks')||'—'}</div>
             <div><b>Action taken:</b> ${getField(r,'Action taken by ZM','ZM Action Point','Action Taken','Action Taken by Reviewer','Reviewer Action Taken')||'—'}</div>
+            <div><b>Next visit:</b> ${getField(r,'Next Visit','Next Visit Date','Next Visit Due Date','Next Visit Scheduled Date')||'—'}</div>
             <div class="${cls}">${b==='Unset'?'Not set':b}</div>
           </div>`;
         }).join('')}
