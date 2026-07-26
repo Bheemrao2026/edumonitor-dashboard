@@ -1494,7 +1494,7 @@ function fVisits(){
     <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${getField(r,'Issues Identified')||'—'}</td>
     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'Discussion Outcomes with Principal/ICT/Teachers/Students','Action Items for Next Visit','Next Steps','Remarks','Comments','Comment')||'—'}</td>
     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'Remarks by Malli/Siva','Manager Comments','Mallikarjuna Comments','Shiva Comments','Reviewer Comments','Manager Remarks')||'—'}</td>
-    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'ZM Action Point','Action Taken','Action Taken by Reviewer','Reviewer Action Taken')||'—'}</td>
+    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;color:var(--acc)">${getField(r,'Action taken by ZM','ZM Action Point','Action Taken','Action Taken by Reviewer','Reviewer Action Taken')||'—'}</td>
     <td style="white-space:nowrap">${getField(r,'Next Visit Due Date')||'—'}</td>
     <td class="${sc}">${bucket==='Unset'?'Not set':bucket}</td>
     </tr>`;
@@ -1554,7 +1554,7 @@ function fVisitsGrouped(){
             <div><b>Issues:</b> ${getField(r,'Issues Identified')||'—'}</div>
             <div><b>Next steps:</b> ${getField(r,'Discussion Outcomes with Principal/ICT/Teachers/Students','Action Items for Next Visit','Next Steps','Remarks','Comments','Comment')||'—'}</div>
             <div><b>Manager comments:</b> ${getField(r,'Remarks by Malli/Siva','Manager Comments','Mallikarjuna Comments','Shiva Comments','Reviewer Comments','Manager Remarks')||'—'}</div>
-            <div><b>Action taken:</b> ${getField(r,'ZM Action Point','Action Taken','Action Taken by Reviewer','Reviewer Action Taken')||'—'}</div>
+            <div><b>Action taken:</b> ${getField(r,'Action taken by ZM','ZM Action Point','Action Taken','Action Taken by Reviewer','Reviewer Action Taken')||'—'}</div>
             <div class="${cls}">${b==='Unset'?'Not set':b}</div>
           </div>`;
         }).join('')}
